@@ -1,0 +1,289 @@
+---
+title: "Homework 3"
+author: "Chester Chen"
+format: 
+  pdf:
+    include-in-header: 
+      text: |
+        \usepackage{bbm}
+---
+
+## Question 1: Linear Regression with Normal Errors
+
+Load the `Hitters` dataset from the `ISLR` package. Drop any rows where Salary is `NA`. Assume the model is $Y = \beta_0 + \beta_1X_1 + \beta_2X_2 + e$ with $e \sim N(0,\sigma^2)$, observations are independent, and where $Y$ denotes `Salary`, $X_1$ denotes `Hits`, and $X_2$ denotes `Years`.  See `?ISLR::Hitters` for definitions of these variables.
+
+```{r}
+data(Hitters, package="ISLR")
+   Hitters <- Hitters[!is.na(Hitters$Salary), ]
+```
+
+
+#### 1.a) Write, mathematically, the joint log-likelihood function.  What link function (or inverse link function) is required to "connect" $\mu_i$ to $x_i'\beta$ (hint: see slide 17 of week 6)?
+
+The log-likelihood function is:
+$$
+\ell_n\left(\beta, \sigma^2\right)=\sum_{i=1}^n \log f\left(y \mid X, \beta, \sigma^2\right)=-\frac{n}{2} \log (2 \pi)-\frac{n}{2} \log \left(\sigma^2\right)-\frac{1}{2 \sigma^2}(Y-X \beta)^{\prime}(Y-X \beta)
+$$
+
+
+#### 1.b) Write an `R` function to calculate the log-likelihood function from 1a above.  Your function should take 3 arguments: (1) $\theta = (\beta, \sigma^2)$ a vector of all (four) parameters, (2) an $n \times k$ matrix $X$, and (3) a vector or $n \times 1$ matrix $y$.
+
+```{r}
+ loglikelihoodfunc <- function(theta, x, y){
+   n <- length(y)
+   loglikelihood <- -n*log(2*pi)/2-n*log(theta[4])/2-
+     1/(2*theta[4])*t(y-x%*%theta[1:3])%*%(y-x%*%theta[1:3])
+  return(loglikelihood) 
+ }
+
+```
+
+
+#### 1.c) Use `optim()` and your function from 1b to find $\hat{\beta}_\text{MLE}$ and $\sigma^2_\text{MLE}$ as well as their standard errors. You may find it helpful to initialize your search at 0 for the $\beta$ parameters and $\text{var}(y)$ for $\sigma^2$.
+
+```{r}
+x=as.matrix(cbind(1,Hitters[c('Hits','Years')]))
+y=as.matrix(Hitters[c('Salary')])
+
+out=optim(par=c(0,0,0,var(y)[1]), fn=loglikelihoodfunc,x=x,y=y,hessian=TRUE, 
+          control=list(fnscale=-1))
+# beta0, beta1, beta2
+beta_mle_optim=out$par[1:3]
+beta_mle_optim
+# sigma^2
+sigma2_mle_optim=out$par[4]
+sigma2_mle_optim
+# standard errors
+estimatestd=sqrt(diag(-1*solve(out$hessian)))[]
+estimatestd
+```
+
+
+#### 1.d) Solve for the length-3 vector $\hat{\beta}_\text{MLE}$ and the scalar $\sigma^2_\text{MLE}$ (or use the derivations in the slides). Then analytically calculate $\hat{\beta}_\text{MLE}$ and $\sigma^2_\text{MLE}$ with the `Hitters` dataset.  Compare your results to the output from `optim` in question 1c above.
+
+```{r}
+# beta
+beta_mle=solve(t(x)%*%x)%*%t(x)%*%y
+beta_mle[1:3]
+# sigma^2
+sigma_mle=1/length(y)*t(y-x%*%beta_mle)%*%(y-x%*%beta_mle)
+sigma_mle[1]
+# compare differences
+(beta_mle/beta_mle_optim-1)[1:3]
+(sigma_mle/sigma2_mle_optim-1)[1]
+```
+
+
+#### 1.e) Test whether the 3 $\beta$ coefficients are each (separately) statistically significantly different from zero at a 95% confidence level. 
+
+```{r}
+abs(beta_mle_optim/estimatestd[1:3])>abs(qt(.05/2,260))
+```
+
+
+\newpage
+
+## Question 2:  A Poisson Model for Count Data
+
+Load the `trading_behavior` dataset. 
+
+The data provides 200 observations on equity trading behavior of Anderson students. `id` is an anonymized identifier for the student.  `numtrades` is the median weekly number trades made by each student during the Fall quarter.  `program` indicates whether the student is in the MSBA (1), MBA (2), or MFE (3) program (note that you may need to store this variable as a factor or convert it to a set of dummy variables when using it to fit a statistical model).  `finlittest` is the students' scores on a financial literacy test taken before entering their graduate program (higher scores indicate higher financial "literacy"). 
+
+Assume you want to model the number of trades as a function of graduate program (where $\mathbbm{1}$ is an indicator function) and financial literacy:
+
+$$ y_i \sim \text{Pois}(\mu_i) $$
+
+$$ \log \mu_i = \beta_0 + \beta_1\mathbbm{1}(MBA) + \beta_2\mathbbm{1}(MFE) + \beta_3 \text{finlittest} $$
+
+```{r}
+setwd('/Users/chester/Desktop/UCLA/Econometrics/Homework/HW3')
+tb_data=read.csv('trading_behavior.csv')
+```
+
+
+#### 2.a) A Poisson density for random variable $Y$ with parameter $\mu$ is $f(y|\mu) = \exp(-\mu)\mu^y/y!$. Suppose we let each $Y_i$ have it's own parameter $\mu_i$ with link function $\log(\cdot)$: specifically, $\log(\mu_i) = x_i'\beta$.  Assume the data are sampled independently.  Write, mathematically, the joint log-likelihood function.
+
+$$
+\begin{gathered}
+\ell_n(\beta)=\sum_{i=1}^n \log f(y \mid \mu) \\
+=-\sum_{i=1}^n \exp \left(X_i \beta\right)+\sum_{i=1}^n Y_i X_i \beta-\sum_{i=1}^n \log \left(Y_{i} !\right) \\
+=-\sum_{i=1}^n \exp \left(X_i \beta\right)+Y^{\prime} X \beta-\sum_{i=1}^n \log \left(Y_{i} !\right)
+\end{gathered}
+$$
+
+#### 2.b) Write an `R` function to calculate the log-likelihood function from 2a above.  Your function should take 3 arguments: (1) a vector $\beta$ of all (four) parameters, (2) an $n \times k$ matrix $X$, and (3) a vector or $n \times 1$ matrix $y$.
+
+```{r}
+loglikelihoodfunc2=function(beta,x,y){
+  n=length(y)
+  
+  p1=0
+  p2=0
+  p3=0
+  for (i in 1:n){
+    p1=exp(x[i,]%*%beta)+p1
+    p2=y[i]*(x[i,]%*%beta)+p2
+    p3=log(factorial(y[i]))+p3
+  }
+
+  loglikelihood=-p1+p2-p3
+  
+  return(loglikelihood)
+  }
+```
+
+
+#### 2.c) Use `optim()` and your function from 1b to find $\hat{\beta}_\text{MLE}$ as well as their standard errors. 
+
+```{r}
+tb_data[c('is_mba','is_mfe')]=0
+tb_data['is_mfe'][tb_data['program']=='MFE']=1
+tb_data['is_mba'][tb_data['program']=='MBA']=1
+
+x=as.matrix(cbind(1,tb_data[c('is_mba','is_mfe','finlittest')]))
+y=as.matrix(tb_data[c('numtrades')])
+
+out=optim(par=c(0,0,0,0), fn=loglikelihoodfunc2,x=x,y=y,hessian=TRUE, control=list(fnscale=-1))
+
+# beta0, beta1, beta2, beta3
+beta_mle_optim=out$par
+beta_mle_optim
+# standard errors
+beta_std=sqrt(diag(-1*solve(out$hessian)))
+beta_std
+```
+
+
+#### 2.d) Fit the model using `glm()`.  Compare your results to the output from `optim` in question 2c above.
+
+```{r}
+out=glm(numtrades~is_mba+is_mfe+finlittest,data=tb_data,family=poisson(link='log'))
+summary(out)$coefficients
+```
+
+
+#### 2.e) The "analog" to the F-test from linear regression is the Likelihood Ratio Test.  The Likelihood Ratio test statistic is calculated as:
+
+$$ LR_n = 2 \times [ \ell_n(\hat{\theta}) - \ell_n(\tilde{\theta})] $$
+
+#### where $\ell_n(\cdot)$ is the log likelihood function, $\hat{\theta}$ is the MLE, and $\tilde{\theta}$ is a constrained parameter vector (e.g., suppose a Null Hypothesis is that $\theta_2=0$ & $\theta_3=0$).  The Likelihood Ratio test statistic $LR_n$ has an asymptotic chi-squared distribution with $k$ degrees of freedom (i.e., $\chi^2_k$ where $k$ is the length of the $\theta$ vector).
+
+#### Test the joint hypothesis that $\beta_2=0$ & $\beta_3=0$ at the 95% confidence level using a Likelihood Ratio test. Specifically, use your log-likelihood function from 2b above and your parameter estimates from 2c above to calculate $\ell_n(\hat{\beta_\text{MLE}})$.  Then replace $\beta_2$ and $\beta_3$ with their hypothesized values and re-calculate the log-likehood (ie, $\ell_n([\hat{\theta}_1,0,0,\hat{\theta}_2])$.  Next, compute $LR_n$ and compare the value to the cut-off of a chi-squared distribution with 4 degrees of freedom to assess whether or not you reject the Null Hypothesis.
+
+```{r}
+LR_n=2*(loglikelihoodfunc2(beta_mle_optim,x,y)-
+          loglikelihoodfunc2(c(beta_mle_optim[1],0,0,beta_mle_optim[4]),x,y))[1]
+LR_n>qchisq(.95,4,200)
+```
+
+We should reject Null Hypothesis.
+
+
+\newpage
+
+## Question 3:  Estimating Demand via the Multi-Nomial Logit Model (MNL)
+
+Suppose you have $i=1,\ldots,n$ consumers who each select exactly one product $j$ from a set of $J$ products. The outcome variable is the identity of the product chosen $y_i \in \{1, \ldots, J\}$ or equivalently a vector of $J-1$ zeros and $1$ one, where the $1$ indicates the selected product. For example, if the third product was chosen out of 4 products, then either $y=3$ or $y=(0,0,1,0)$ depending on how you want to represent it. Suppose also that you have a vector of data on each product $x_j$ (eg, size, price, etc.). 
+
+The MNL model posits that the probability that consumer $i$ chooses product $j$ is:
+
+$$ \mathbb{P}_i(j) = \frac{e^{x_j'\beta}}{\sum_{k=1}^Je^{x_k'\beta}} $$
+
+For example, if there are 4 products, the probability that consumer $i$ chooses product 3 is:
+
+$$ \mathbb{P}_i(3) = \frac{e^{x_3'\beta}}{e^{x_1'\beta} + e^{x_2'\beta} + e^{x_3'\beta} + e^{x_4'\beta}} $$
+
+A clever way to write the individual likelihood function for consumer $i$ is the product of the $J$ probabilities, each raised to the power of an indicator variable ($\delta_{ij}$) that indicates the chosen product:
+
+$$ L_i(\beta) = \prod_{j=1}^J \mathbb{P}_i(j)^{\delta_{ij}} = \mathbb{P}_i(1)^{\delta_{i1}} \times \ldots \times \mathbb{P}_i(J)^{\delta_{iJ}}$$
+
+Notice that if the consumer selected product $j=3$, then $\delta_{i3}=1$ while $\delta_{i1}=\delta_{i2}=\delta_{i4}=0$ and the likelihood is:
+
+$$ L_i(\beta) = \mathbb{P}_i(1)^0 \times \mathbb{P}_i(2)^0 \times \mathbb{P}_i(3)^1 \times \mathbb{P}_i(4)^0 = \mathbb{P}_i(3) = \frac{e^{x_3'\beta}}{\sum_{k=1}^Je^{x_k'\beta}} $$
+
+The joint likelihood (across all consumers) is the product of the $n$ individual likelihoods:
+
+$$ L_n(\beta) = \prod_{i=1}^n L_i(\beta) = \prod_{i=1}^n \prod_{j=1}^J \mathbb{P}_i(j)^{\delta_{ij}} $$
+
+And the joint log-likelihood function is:
+
+$$ \ell_n(\beta) = \sum_{i=1}^n \sum_{j=1}^J \delta_{ij} \log(\mathbb{P}_i(j)) $$
+
+Use the `ygt_data` dataset, which provides the anonymized consumer identifiers (`id`), a vector indicating the chosen product (`y1`:`y4`), a vector indicating if any products were "featured" in the store as a form of advertising (`f1`:`f4`), and the products' prices (`p1`:`p4`). For example, consumer 1 purchased ygt 4 at a price of 0.079/oz and none of the ygts were featured/advertised at the time of consumer 1's purchase.  Consumers 2 through 7 each bought ygt 2, etc.
+
+Let the vector of product features include brand dummy variables for ygts 1-3 (omit a dummy for product 4 to avoid multi-collnearity), a dummy variable to indicate featured, and a continuous variable for price:  
+
+$$ x_j' = [\mathbbm{1}(\text{ygt 1}), \mathbbm{1}(\text{ygt 2}), \mathbbm{1}(\text{ygt 3}), X_f, X_p] $$
+
+You will need to create the product dummies. The variables for featured and price are included in the dataset. The "hard part" of this likelihood function is organizing the data.
+
+
+Your task: Code up the log-likelihood function.  Use `optim()` to find the MLEs for the 5 parameters ($\beta_1, \beta_2, \beta_3, \beta_f, \beta_p$). 
+
+(Hint: you should find 2 positive and 1 negative product intercepts, a small positive coefficient estimate for featured, and a large negative coefficient estimate for price.)
+
+
+```{r}
+# Organizing the data
+ygt <- read.csv("yogurt_data.csv")
+featured <- c()
+prices <- c()
+outcome <- c()
+for(x in 1:length(ygt$id))
+{
+  feature_value <- if(ygt$f1[x]==1) 1 else if(ygt$f2[x]==1) 1 
+  else if(ygt$f3[x]==1) 1 else if(ygt$f4[x]==1) 1 else 0
+  price <- if(ygt$y1[x]==1) ygt$p1[x] else if(ygt$y2[x]==1) ygt$p2[x] 
+  else if(ygt$y3[x]==3) ygt$p3[x] else ygt$p4[x]
+  outcome_val <- if(ygt$y1[x]==1) 1 else if(ygt$y2[x]==1) 2 
+  else if(ygt$y3[x]==3) 3 else 4
+  featured <- c(featured, feature_value)
+  prices <- c(prices, price)
+  outcome <- c(outcome, outcome_val)
+}
+ygt_1 <- as.vector(ifelse(ygt$y1==1, 1, 0))
+ygt_2 <- as.vector(ifelse(ygt$y2==1, 1, 0))
+ygt_3 <- as.vector(ifelse(ygt$y3==1, 1, 0))
+
+ygt$f = ifelse(ygt$y1==1,ygt$f1,ifelse(ygt$y2==1,ygt$f2,ifelse(ygt$y3==1,ygt$f3,ygt$f4)))
+ygt$p = ifelse(ygt$y1==1,ygt$p1,ifelse(ygt$y2==1,ygt$p2,ifelse(ygt$y3==1,ygt$p3,ygt$p4)))
+
+y <- outcome
+X <- cbind(ygt_1, ygt_2, ygt_3, featured, prices)
+
+# Log-Likelihood function
+multi_logit_func <- function(beta, X)
+{
+  ln <- 0
+  for (i in 1:length(y)) {
+    X1 = X[i,c("y1","y2","y3","f1","p1")]
+    X1["y1"] = 1
+    X1["y2"] = 0
+    X1["y3"] = 0
+
+    X2 = X[i,c("y1","y2","y3","f2","p2")]
+    X2["y1"] = 0
+    X2["y2"] = 1
+    X2["y3"] = 0
+
+    X3 = X[i,c("y1","y2","y3","f3","p3")]
+    X3["y1"] = 0
+    X3["y2"] = 0
+    X3["y3"] = 1
+
+    X4 = X[i,c("y1","y2","y3","f4","p4")]
+    X4["y1"] = 0
+    X4["y2"] = 0
+    X4["y3"] = 0
+
+    ln = ln+(X[i,c("y1","y2","y3","f","p")]%*%beta)
+    -log(exp(X1%*%beta)+exp(X2%*%beta)+exp(X3%*%beta)+exp(X4%*%beta))
+  }
+  return(ln)
+}
+output = optim(par=c(0,0,0,0,0),fn=multi_logit_func,X=as.matrix(ygt), 
+                control=list(fnscale = -1, maxit = 500))
+beta = output$par
+print(beta)
+
+```
